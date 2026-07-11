@@ -1,0 +1,126 @@
+# n4n-code release automation.
+#
+# Every 6 hours (and on manual dispatch): find the newest upstream
+# anomalyco/opencode release tag; if we have not shipped it yet, merge it into
+# the n4n branch, build every platform target, rename the binary to n4n-code
+# at packaging time, and publish a GitHub release under the SAME version tag.
+# A merge conflict opens a PR instead of releasing — a broken build never
+# ships and the previous n4n-code release stays current.
+name: n4n-release
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: n4n-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: n4n
+          fetch-depth: 0
+
+      - name: Find newest unshipped upstream tag
+        id: up
+        run: |
+          git remote add upstream https://github.com/anomalyco/opencode.git
+          git fetch upstream --tags --quiet
+          TAG=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$TAG" ]; then echo "no upstream tag found" >&2; exit 1; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "already released $TAG"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream tag
+        id: merge
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          git config user.name "n4n-release-bot"
+          git config user.email "bot@n4n.ai"
+          if git merge --no-edit "${{ steps.up.outputs.tag }}"; then
+            exit 0
+          fi
+          echo "merge conflict — opening PR"
+          git merge --abort
+          BRANCH="sync-conflict/${{ steps.up.outputs.tag }}"
+          git checkout -B "$BRANCH"
+          git merge "${{ steps.up.outputs.tag }}" || true
+          git add -A
+          git commit -m "wip: conflicted merge of ${{ steps.up.outputs.tag }}"
+          git push -f origin "$BRANCH"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base n4n --head "$BRANCH" \
+            --title "Merge conflict syncing ${{ steps.up.outputs.tag }}" \
+            --body "Automatic upstream sync hit a merge conflict. Resolve on this branch, merge to n4n, then re-run the n4n-release workflow." \
+            || true
+          echo "conflict=true" >> "$GITHUB_OUTPUT"
+
+      - name: Fail on conflict
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          echo "::error::Upstream merge conflict — see the sync-conflict PR"
+          exit 1
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.up.outputs.skip != 'true'
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        if: steps.up.outputs.skip != 'true'
+        run: bun install
+
+      - name: Build all targets
+        if: steps.up.outputs.skip != 'true'
+        working-directory: packages/opencode
+        env:
+          OPENCODE_VERSION: ${{ steps.up.outputs.version }}
+          OPENCODE_CHANNEL: latest
+          OPENCODE_MODELS_URL: https://api.n4n.ai/catalog
+        run: bun script/build.ts
+
+      - name: Package as n4n-code
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          cd packages/opencode/dist
+          for d in opencode-*; do
+            [ -d "$d/bin" ] || continue
+            out="n4n-code-${d#opencode-}"
+            if [ -f "$d/bin/opencode.exe" ]; then
+              mv "$d/bin/opencode.exe" "$d/bin/n4n-code.exe"
+            else
+              mv "$d/bin/opencode" "$d/bin/n4n-code"
+            fi
+            case "$d" in
+              *linux*) tar -czf "$out.tar.gz" -C "$d/bin" . ;;
+              *)       (cd "$d/bin" && zip -qr "../../$out.zip" .) ;;
+            esac
+          done
+          ls -la n4n-code-*
+
+      - name: Smoke test
+        if: steps.up.outputs.skip != 'true'
+        run: packages/opencode/dist/opencode-linux-x64/bin/n4n-code --version
+
+      - name: Push branch and publish release
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          git push origin n4n
+          gh release create "${{ steps.up.outputs.tag }}" --repo "$GITHUB_REPOSITORY" \
+            --title "n4n-code ${{ steps.up.outputs.tag }}" \
+            --notes "n4n-code build of opencode ${{ steps.up.outputs.tag }} (upstream anomalyco/opencode). Install: \`curl -fsSL https://n4n.ai/code/install | bash\`" \
+            packages/opencode/dist/n4n-code-*.tar.gz packages/opencode/dist/n4n-code-*.zip
