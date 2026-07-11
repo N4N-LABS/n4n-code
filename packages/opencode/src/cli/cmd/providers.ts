@@ -369,6 +369,7 @@ export const ProvidersLoginCommand = effectCmd({
     const hooks = yield* pluginSvc.list()
 
     const priority: Record<string, number> = {
+      n4n: -1,
       opencode: 0,
       openai: 1,
       "github-copilot": 2,
@@ -396,6 +397,7 @@ export const ProvidersLoginCommand = effectCmd({
           label: x.name,
           value: x.id,
           hint: {
+            n4n: "recommended",
             opencode: "recommended",
             openai: "ChatGPT Plus/Pro or API key",
           }[x.id],
