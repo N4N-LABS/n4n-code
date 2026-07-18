@@ -36,7 +36,10 @@ jobs:
         id: up
         run: |
           git remote add upstream https://github.com/anomalyco/opencode.git
-          git fetch upstream --tags --quiet
+          # --force: our releases mint fork tags at the merged n4n commit, so
+          # same-named upstream tags diverge and a plain --tags fetch dies with
+          # a clobber error that --quiet swallows.
+          git fetch upstream --tags --force --quiet
           TAG=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           if [ -z "$TAG" ]; then echo "no upstream tag found" >&2; exit 1; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
