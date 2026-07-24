@@ -1,6 +1,10 @@
 {
   "name": "@opencode-ai/enterprise",
+<<<<<<< HEAD
   "version": "1.18.3",
+=======
+  "version": "1.18.4",
+>>>>>>> v1.18.4
   "private": true,
   "type": "module",
   "license": "MIT",
