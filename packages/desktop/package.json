@@ -1,7 +1,11 @@
 {
   "name": "@opencode-ai/desktop",
   "private": true,
+<<<<<<< HEAD
   "version": "1.18.3",
+=======
+  "version": "1.18.5",
+>>>>>>> v1.18.5
   "type": "module",
   "license": "MIT",
   "homepage": "https://opencode.ai",
