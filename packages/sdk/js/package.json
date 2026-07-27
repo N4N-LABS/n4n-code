@@ -1,7 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@opencode-ai/sdk",
+<<<<<<< HEAD
   "version": "1.18.3",
+=======
+  "version": "1.18.6",
+>>>>>>> v1.18.6
   "type": "module",
   "license": "MIT",
   "scripts": {
